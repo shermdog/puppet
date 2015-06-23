@@ -1,4 +1,5 @@
 require 'puppet/indirector'
+require 'puppet/util/psych_support'
 
 # A class for managing nodes, including their facts and environment.
 class Puppet::Node
@@ -8,6 +9,9 @@ class Puppet::Node
   # Set up indirection, so that nodes can be looked for in
   # the node sources.
   extend Puppet::Indirector
+
+  # (SERVER-702) Avoid serializing unnecessary huge objects
+  include Puppet::Util::PsychSupport
 
   # Use the node source as the indirection terminus.
   indirects :node, :terminus_setting => :node_terminus, :doc => "Where to find node information.

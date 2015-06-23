@@ -196,6 +196,10 @@ class Puppet::Indirector::Indirection
         result.expiration ||= self.expiration if result.respond_to?(:expiration)
         if cache?
           Puppet.info "Caching #{self.name} for #{request.key}"
+          h = {}
+          900.times do h={h: h}; end
+          e = result.instance_variable_get(:@environment)
+          e.instance_variable_set(:@bighash, h)
           cache.save request(:save, key, result, options)
         end
 

@@ -11,7 +11,15 @@ Puppet::Type.type(:package).provide :yum, :parent => :rpm, :source => :rpm do
 
   has_feature :install_options, :versionable, :virtual_packages
 
-  commands :yum => "yum", :rpm => "rpm"
+  # Check if we should use dnf or yum
+  if Facter.value(:operatingsystem).downcase == "fedora" and Facter.value(:operatingsystemmajrelease).to_i >= 22
+    commands :yum => "dnf", :rpm => "rpm"
+    # dnf has slightly different logging levels than yum
+    $yumopts = ['-d', '0', '-e', '1', '-y']
+  else
+    commands :yum => "yum", :rpm => "rpm"
+    $yumopts = ['-d', '0', '-e', '0', '-y']
+  end
 
   if command('rpm')
     confine :true => begin
@@ -130,7 +138,7 @@ Puppet::Type.type(:package).provide :yum, :parent => :rpm, :source => :rpm do
     wanted = @resource[:name]
     # If not allowing virtual packages, do a query to ensure a real package exists
     unless @resource.allow_virtual?
-      yum *['-d', '0', '-e', '0', '-y', install_options, :list, wanted].compact
+      yum *$yumopts.concat([install_options, :list, wanted].compact)
     end
 
     should = @resource.should(:ensure)
@@ -151,7 +159,7 @@ Puppet::Type.type(:package).provide :yum, :parent => :rpm, :source => :rpm do
       end
     end
 
-    args = ["-d", "0", "-e", "0", "-y", install_options, operation, wanted].compact
+    args = $yumopts.concat([install_options, operation, wanted].compact)
     yum *args
 
 

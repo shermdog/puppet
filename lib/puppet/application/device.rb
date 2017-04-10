@@ -129,6 +129,10 @@ you can specify '--server <servername>' as an argument.
   means at least one device had resource failures. Exit codes of '3', '5', '6',
   or '7' means that a bitwise combination of the preceding exit codes happened.
 
+* --deviceconfig:
+  Path to the device config file for puppet device.
+  Default: $confdir/device.conf
+
 * --help:
   Print this help message
 

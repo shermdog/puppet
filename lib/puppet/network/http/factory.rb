@@ -38,6 +38,11 @@ class Puppet::Network::HTTP::Factory
     http.read_timeout = Puppet[:http_read_timeout]
     http.open_timeout = Puppet[:http_connect_timeout]
 
+    if Puppet[:sourceaddress]
+      Puppet.debug("Using source IP #{Puppet[:sourceaddress]}")
+      http.local_host = Puppet[:sourceaddress]
+    end
+
     if Puppet[:http_debug]
       http.set_debug_output($stderr)
     end

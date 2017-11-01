@@ -94,5 +94,20 @@ describe Puppet::Network::HTTP::Factory do
         expect(conn.read_timeout).to eq(120)
       end
     end
+
+    context 'source address' do
+      it 'defaults to system-defined' do
+        conn = create_connection(site)
+
+        expect(conn.local_host).to be(nil)
+      end
+
+      it 'sets the local_host address' do
+        Puppet[:sourceaddress] = "127.0.0.1"
+        conn = create_connection(site)
+
+        expect(conn.local_host).to eq('127.0.0.1')
+      end
+    end
   end
 end

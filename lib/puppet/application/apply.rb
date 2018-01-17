@@ -31,6 +31,10 @@ class Puppet::Application::Apply < Puppet::Application
     exit 1
   end
 
+  option("--target DEVICE", "-t") do |arg|
+    options[:target] = arg.to_s
+  end
+
   def summary
     _("Apply Puppet manifests locally")
   end
@@ -201,6 +205,20 @@ Copyright (c) 2011 Puppet Inc., LLC Licensed under the Apache 2.0 License
     # splay if needed
     splay
 
+    if options[:target]
+      require 'pry'; binding.pry
+      require 'puppet/util/network_device'
+      require 'puppet/util/network_device/config'
+      device = Puppet::Util::NetworkDevice::Config.device(options[:target])
+
+      # override local $vardir and $certname
+      Puppet[:confdir] = ::File.join(Puppet[:devicedir], device.name)
+      Puppet[:vardir] = ::File.join(Puppet[:devicedir], device.name)
+      Puppet[:certname] = device.name
+
+      Puppet::Util::NetworkDevice.init(device)
+    end
+
     unless Puppet[:node_name_fact].empty?
       # Collect our facts.
       unless facts = Puppet::Node::Facts.indirection.find(Puppet[:node_name_value])
@@ -353,6 +371,10 @@ Copyright (c) 2011 Puppet Inc., LLC Licensed under the Apache 2.0 License
 
   def apply_catalog(catalog)
     configurer = Puppet::Configurer.new
-    configurer.run(:catalog => catalog, :pluginsync => false)
+    if options[:target]
+      configurer.run(:network_device => true, :catalog => catalog, :pluginsync => false)
+    else
+      configurer.run(:catalog => catalog, :pluginsync => false)
+    end
   end
 end

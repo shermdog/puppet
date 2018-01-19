@@ -30,7 +30,9 @@ class Puppet::Application::Device < Puppet::Application
       :debug => false,
       :centrallogs => false,
       :setdest => false,
+      :resource => nil,
       :target => nil,
+      :to_yaml => false,
     }.each do |opt,val|
       options[opt] = val
     end
@@ -41,6 +43,7 @@ class Puppet::Application::Device < Puppet::Application
   option("--centrallogging")
   option("--debug","-d")
   option("--verbose","-v")
+  option("--to_yaml","-y")
 
   option("--detailed-exitcodes") do |arg|
     options[:detailed_exitcodes] = true
@@ -56,6 +59,10 @@ class Puppet::Application::Device < Puppet::Application
 
   option("--port PORT","-p") do |arg|
     @args[:Port] = arg
+  end
+
+  option("--resource RESOURCE,TITLE", "-r", Array) do |arg|
+    options[:resource] = arg
   end
 
   option("--target DEVICE", "-t") do |arg|
@@ -150,9 +157,18 @@ you can specify '--server <servername>' as an argument.
   appending nature of logging. It must be appended manually to make the content
   valid JSON.
 
+* --resource:
+  Displays resource state as Puppet code, roughly equivalent to
+  `puppet resource`.  Format is resource_type,optional_title.  Requires --target
+  be specified.
+
 * --target:
   Target a specific device/certificate in the device.conf. Doing so will perform a
   device run against only that device/certificate.
+
+* --to_yaml:
+  Output found resources in yaml format, suitable to use with Hiera and
+  create_resources.
 
 * --user:
   The user to run as.
@@ -170,7 +186,7 @@ you can specify '--server <servername>' as an argument.
 
 EXAMPLE
 -------
-      $ puppet device --server puppet.domain.com
+      $ puppet device --target remotehost --verbose
 
 AUTHOR
 ------
@@ -186,6 +202,10 @@ Licensed under the Apache 2.0 License
 
 
   def main
+    if options[:resource] and !options[:target]
+      Puppet.err _("resource command requires target")
+      exit(1)
+    end
     vardir = Puppet[:vardir]
     confdir = Puppet[:confdir]
     certname = Puppet[:certname]
@@ -212,27 +232,48 @@ Licensed under the Apache 2.0 License
           # Handle nil scheme & port
           scheme = "#{device_url.scheme}://" if device_url.scheme
           port = ":#{device_url.port}" if device_url.port
-          Puppet.info _("starting applying configuration to %{target} at %{scheme}%{url_host}%{port}%{url_path}") % { target: device.name, scheme: scheme, url_host: device_url.host, port: port, url_path: device_url.path }
 
           # override local $vardir and $certname
           Puppet[:confdir] = ::File.join(Puppet[:devicedir], device.name)
           Puppet[:vardir] = ::File.join(Puppet[:devicedir], device.name)
           Puppet[:certname] = device.name
 
-          # this will reload and recompute default settings and create the devices sub vardir, or we hope so :-)
-          Puppet.settings.use :main, :agent, :ssl
-
           # this init the device singleton, so that the facts terminus
           # and the various network_device provider can use it
           Puppet::Util::NetworkDevice.init(device)
 
-          # ask for a ssl cert if needed, but at least
-          # setup the ssl system for this device.
-          setup_host
+          if options[:resource]
+            type = options[:resource][0]
+            Puppet.info _("retrieving resource: %{resource} from %{target} at %{scheme}%{url_host}%{port}%{url_path}") % { resource: type, target: device.name, scheme: scheme, url_host: device_url.host, port: port, url_path: device_url.path }
+            #resources = find_or_save_resources(type, name, params)
+            resources = find_or_save_resources(type, options[:resource][1], nil)
 
-          require 'puppet/configurer'
-          configurer = Puppet::Configurer.new
-          configurer.run(:network_device => true, :pluginsync => Puppet::Configurer.should_pluginsync?)
+            if options[:to_yaml]
+              text = resources.map do |resource|
+                resource.prune_parameters(:parameters_to_include => @extra_params).to_hierayaml.force_encoding(Encoding.default_external)
+              end.join("\n")
+              text.prepend("#{type.downcase}:\n")
+            else
+              text = resources.map do |resource|
+                resource.prune_parameters(:parameters_to_include => @extra_params).to_manifest.force_encoding(Encoding.default_external)
+              end.join("\n")
+            end
+            # We probably won't support editing, but leaving here for now
+            options[:edit] ?
+              handle_editing(text) :
+              (puts text)
+          else
+            Puppet.info _("starting applying configuration to %{target} at %{scheme}%{url_host}%{port}%{url_path}") % { target: device.name, scheme: scheme, url_host: device_url.host, port: port, url_path: device_url.path }
+            # this will reload and recompute default settings and create the devices sub vardir
+            Puppet.settings.use :main, :agent, :ssl
+            # ask for a ssl cert if needed, but at least
+            # setup the ssl system for this device.
+            setup_host
+
+            require 'puppet/configurer'
+            configurer = Puppet::Configurer.new
+            configurer.run(:network_device => true, :pluginsync => Puppet::Configurer.should_pluginsync?)
+          end
         rescue => detail
           Puppet.log_exception(detail)
           # If we rescued an error, then we return 1 as the exit code
@@ -256,6 +297,31 @@ Licensed under the Apache 2.0 License
     else
       exit(0)
     end
+  end
+
+  def find_or_save_resources(type, name, params)
+    key = local_key(type, name)
+
+    if name
+      if params.nil?
+        [ Puppet::Resource.indirection.find( key ) ]
+      else
+        resource = Puppet::Resource.new( type, name, :parameters => params )
+
+        # save returns [resource that was saved, transaction log from applying the resource]
+        save_result = Puppet::Resource.indirection.save(resource, key)
+        [ save_result.first ]
+      end
+    else
+      if type == "file"
+        raise _("Listing all file instances is not supported.  Please specify a file or directory, e.g. puppet resource file /etc")
+      end
+      Puppet::Resource.indirection.search( key, {} )
+    end
+  end
+
+  def local_key(type, name)
+    [type, name].join('/')
   end
 
   def setup_host
